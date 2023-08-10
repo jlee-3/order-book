@@ -29,6 +29,20 @@ module.exports = {
           sell: "#FF5B5A",
         },
       },
+      keyframes: {
+        "flash-green": {
+          "0%": { "background-color": "rgba(0, 177, 93, 0.5)" },
+          "100%": { "background-color": "#131B29" },
+        },
+        "flash-red": {
+          "0%": { "background-color": "rgba(255, 91, 90, 0.5)" },
+          "100%": { "background-color": "#131B29" },
+        },
+      },
+      animation: {
+        "flash-green": "flash-green 0.5s ease-out",
+        "flash-red": "flash-red 0.5s ease-out",
+      },
     },
   },
   plugins: [],
