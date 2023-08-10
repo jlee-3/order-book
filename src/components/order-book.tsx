@@ -217,10 +217,14 @@ export default function OrderBook() {
     });
   };
 
+  const getSizePercent = (currentSize: number) => {
+    return ((currentSize / bidTotals[0]) * 100).toString() + "%";
+  };
+
   return (
     <div className="bg-background-main w-[300px]">
-      <div className="my-2 border-b-[0.5px] border-text-head">
-        <p className="px-2 text-text-default font-medium">Order Book</p>
+      <div className="my-2 border-b-2 border-header-stroke">
+        <p className="px-2 pb-2 text-text-default font-medium">Order Book</p>
       </div>
       <div className="m-2 flex flex-row justify-between">
         <div className="flex w-[55%] justify-between">
@@ -237,7 +241,7 @@ export default function OrderBook() {
               <div
                 key={bid}
                 className={`px-2 flex justify-between hover:bg-background-hover
-                ${bidStatus[index] === "new" && "animate-flash-green"}`}
+                ${bidStatus[index] === "new" && "animate-flash-red"}`}
               >
                 <div className="flex w-1/2">
                   <div className="w-1/2 text-text-sell">
@@ -251,7 +255,17 @@ export default function OrderBook() {
                     {formatNumber(bidSize[index], 0)}
                   </div>
                 </div>
-                <div className="">{formatNumber(bidTotals[index], 0)}</div>
+                <div className="w-[45%] relative">
+                  <div className="z-10 absolute right-0">
+                    {formatNumber(bidTotals[index], 0)}
+                  </div>
+                  <div
+                    style={{
+                      width: getSizePercent(bidTotals[index]),
+                    }}
+                    className="h-full bg-background-sell-total absolute right-0"
+                  />
+                </div>
               </div>
             );
           })}
