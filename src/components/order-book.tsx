@@ -2,16 +2,25 @@ import example from "../utils/example.json";
 import { useState, useEffect } from "react";
 import _ from "lodash";
 
+type QuoteType = "bid" | "ask";
 type QuoteStatus = "new" | "sizeGain" | "sizeLoss" | "normal";
 type LastPriceStatus = "gain" | "loss" | "same";
 
 export default function OrderBook() {
+  const [askPrice, setAskPrice] = useState<number[]>([]);
+  const [askSize, setAskSize] = useState<number[]>([]);
+  const [askTotals, setAskTotals] = useState<number[]>([]);
+  const [askStatus, setAskStatus] = useState<QuoteStatus[]>(
+    Array(8).fill("normal")
+  );
+
   const [bidPrice, setBidPrice] = useState<number[]>([]);
   const [bidSize, setBidSize] = useState<number[]>([]);
-  const [bidTotals, setBidTotals] = useState<any>([]);
+  const [bidTotals, setBidTotals] = useState<number[]>([]);
   const [bidStatus, setBidStatus] = useState<QuoteStatus[]>(
     Array(8).fill("normal")
   );
+
   const [lastPrice, setLastPrice] = useState<number>();
   const [lastPriceStatus, setLastPriceStatus] = useState<LastPriceStatus>();
 
@@ -71,108 +80,136 @@ export default function OrderBook() {
       // console.log("received: '" + e.data + "'");
       const raw = JSON.parse(e.data);
       // const topic = raw && raw.topic ? raw.topic : "";
+      const rawAsks = raw?.data?.asks;
       const rawBids = raw?.data?.bids;
 
-      updateBids(rawBids, raw?.data?.type);
+      updateQuotes(
+        "ask",
+        rawAsks,
+        askPrice,
+        askSize,
+        askStatus,
+        raw?.data?.type
+      );
+      updateQuotes(
+        "bid",
+        rawBids,
+        bidPrice,
+        bidSize,
+        bidStatus,
+        raw?.data?.type
+      );
     }
   };
 
-  const updateBids = (quotes: any[], type: string) => {
-    if (type === "snapshot") {
+  const updateQuotes = (
+    quoteType: QuoteType,
+    quotes: string[],
+    price: number[],
+    size: number[],
+    quoteStatus: QuoteStatus[],
+    dataType: string
+  ) => {
+    if (dataType === "snapshot") {
       // console.log("resetting with quotes: ", quotes.slice(0, 8));
-      setBidPrice(
-        quotes.slice(0, 8).map((quote) => {
-          return Number(quote[0]);
-        })
-      );
-      updateBidSize(
-        quotes.slice(0, 8).map((quote) => {
-          return Number(quote[1]);
-        })
-      );
-      setBidStatus(Array(8).fill("normal"));
-    } else if (quotes?.[0] && bidPrice?.[0] && type === "delta") {
+      const [snapshotPrice, snapshotSize] = getSnapshotQuotes(quotes);
+      updatePriceAndSize(quoteType, snapshotPrice, snapshotSize);
+
+      quoteType === "bid"
+        ? setBidStatus(Array(8).fill("normal"))
+        : setAskStatus(Array(8).fill("normal"));
+    } else if (quotes?.[0] && price?.[0] && dataType === "delta") {
       for (let i = 0; i < quotes.length; i++) {
-        let tempBidPrice = bidPrice;
-        let tempBidSize = bidSize;
-        const newPrice = quotes[i][0];
-        const newSize = quotes[i][1];
+        let tempPrice = price;
+        let tempSize = size;
+        const newPrice = Number(quotes[i][0]);
+        const newSize = Number(quotes[i][1]);
 
         // append highest price to start
-        if (newSize !== "0" && Number(newPrice) > bidPrice[0]) {
-          // console.log("highest price insert quote: ", quotes[i]);
-          tempBidPrice.unshift(Number(newPrice));
-          tempBidPrice.pop();
-          tempBidSize.unshift(Number(newSize));
-          tempBidSize.pop();
+        if (newSize !== 0 && Number(newPrice) > price[0]) {
+          console.log("highest price insert quote: ", quotes[i]);
+          tempPrice.unshift(Number(newPrice));
+          tempPrice.pop();
+          tempSize.unshift(Number(newSize));
+          tempSize.pop();
 
-          updateBidStatus(0, "new");
+          updateStatus(quoteType, quoteStatus, 0, "new");
         } else if (
-          quotes[i][1] !== "0" &&
-          Number(newPrice) <= bidPrice[0] &&
-          Number(newPrice) >= bidPrice[7]
+          newSize !== 0 &&
+          Number(newPrice) <= price[0] &&
+          Number(newPrice) >= price[7]
         ) {
-          // replace old bid
           if (
-            bidPrice.includes(Number(newPrice)) &&
-            !bidSize.includes(Number(newSize))
+            price.includes(Number(newPrice)) &&
+            !size.includes(Number(newSize))
           ) {
-            // console.log("update old quote: ", quotes[i]);
-            // console.log("old tempBidSize: ", tempBidSize);
-            const updateIndex = tempBidPrice.indexOf(Number(newPrice));
+            // replace old quote
+            console.log("update old quote: ", quotes[i]);
+            const updateIndex = tempPrice.indexOf(Number(newPrice));
             const status =
-              newSize > tempBidSize[updateIndex] ? "sizeGain" : "sizeLoss";
-            // console.log(
-            //   "updated status: ",
-            //   status,
-            //   " newSize: ",
-            //   newSize,
-            //   " oldSize: ",
-            //   tempBidSize[updateIndex]
-            // );
-            updateBidStatus(updateIndex, status);
+              newSize > tempSize[updateIndex] ? "sizeGain" : "sizeLoss";
+            updateStatus(quoteType, quoteStatus, updateIndex, status);
 
-            tempBidPrice.splice(updateIndex, 1, Number(newPrice));
-            tempBidSize.splice(updateIndex, 1, Number(newSize));
-            // console.log("updateIndex: ", updateIndex);
-            // console.log("updated tempBidSize: ", tempBidSize);
-            // console.log("[tempBidPrice length]: ", tempBidPrice.length);
-
+            tempPrice.splice(updateIndex, 1, Number(newPrice));
+            tempSize.splice(updateIndex, 1, Number(newSize));
+          } else if (!price.includes(Number(newPrice))) {
             // insert new bid
-          } else if (!bidPrice.includes(Number(newPrice))) {
-            // console.log("insert new quote: ", quotes[i]);
-            // console.log("original tempBidPrice: ", tempBidPrice);
-            // console.log("original tempBidSize: ", tempBidSize);
-            let index = _.sortedIndex(tempBidPrice.reverse(), Number(newPrice));
-            // console.log("index: ", index);
+            console.log("insert new quote: ", quotes[i]);
+            let index = _.sortedIndex(tempPrice.reverse(), Number(newPrice));
 
-            tempBidPrice.splice(index, 0, Number(newPrice));
-            tempBidPrice.reverse().pop();
-            tempBidSize.reverse().splice(index, 0, Number(newSize));
-            tempBidSize.reverse().pop();
+            tempPrice.splice(index, 0, Number(newPrice));
+            tempPrice.reverse().pop();
+            tempSize.reverse().splice(index, 0, Number(newSize));
+            tempSize.reverse().pop();
 
-            // console.log("updated tempBidPrice: ", tempBidPrice);
-            // console.log("updated tempBidSize: ", tempBidSize);
-
-            updateBidStatus(index, "new");
+            updateStatus(quoteType, quoteStatus, index, "new");
           }
         }
 
-        setBidPrice(tempBidPrice);
-        updateBidSize(tempBidSize);
+        updatePriceAndSize(quoteType, tempPrice, tempSize);
       }
     }
   };
 
-  const updateBidSize = (bidSize: number[]) => {
-    setBidSize(bidSize);
-    updateTotalSize();
+  const getSnapshotQuotes = (quotes: string[]) => {
+    const snapshotPrice = quotes.slice(0, 8).map((quote) => {
+      return Number(quote[0]);
+    });
+    const snapshotSize = quotes.slice(0, 8).map((quote) => {
+      return Number(quote[1]);
+    });
+
+    return [snapshotPrice, snapshotSize];
   };
 
-  const updateBidStatus = (index: number, status: QuoteStatus) => {
-    let tempBidStatus = bidStatus;
-    tempBidStatus.splice(index, 1, status);
-    setBidStatus(tempBidStatus);
+  const updatePriceAndSize = (
+    quoteType: QuoteType,
+    price: number[],
+    size: number[]
+  ) => {
+    quoteType === "bid" ? setBidPrice(price) : setAskPrice(price);
+    quoteType === "bid" ? updateBidSize(size) : updateAskSize(size);
+  };
+
+  const updateBidSize = (bidSize: number[]) => {
+    setBidSize(bidSize);
+    updateTotalSize("bid", bidSize);
+  };
+
+  const updateAskSize = (askSize: number[]) => {
+    setAskSize(askSize);
+    updateTotalSize("ask", askSize);
+  };
+
+  const updateStatus = (
+    quoteType: QuoteType,
+    quoteStatus: QuoteStatus[],
+    index: number,
+    status: QuoteStatus
+  ) => {
+    let tempStatus = quoteStatus;
+    tempStatus.splice(index, 1, status);
+    quoteType === "bid" ? setBidStatus(tempStatus) : setAskStatus(tempStatus);
   };
 
   lastPriceSocket.onmessage = (e) => {
@@ -199,16 +236,17 @@ export default function OrderBook() {
   //   setBids([...bids, response.data.bids.slice(0, 7)]);
   // }, [response, bids]);
 
-  const updateTotalSize = () => {
+  const updateTotalSize = (quoteType: QuoteType, size: number[]) => {
     const totals = [];
     let cumulativeTotal = 0;
 
-    for (let i = bidSize.length - 1; i >= 0; i--) {
-      cumulativeTotal = cumulativeTotal + Number(bidSize[i]);
+    for (let i = size.length - 1; i >= 0; i--) {
+      const index = quoteType === "ask" ? i : size.length - 1 - i;
+      cumulativeTotal = cumulativeTotal + Number(size[index]);
       totals.push(cumulativeTotal);
     }
 
-    setBidTotals(totals.reverse());
+    quoteType === "ask" ? setAskTotals(totals.reverse()) : setBidTotals(totals);
   };
 
   const formatNumber = (number: any, digits: number) => {
@@ -217,8 +255,13 @@ export default function OrderBook() {
     });
   };
 
-  const getSizePercent = (currentSize: number) => {
-    return ((currentSize / bidTotals[0]) * 100).toString() + "%";
+  const getSizePercent = (
+    quoteType: QuoteType,
+    currentSize: number,
+    totals: number[]
+  ) => {
+    const grandTotalIndex = quoteType === "ask" ? 0 : 7;
+    return ((currentSize / totals[grandTotalIndex]) * 100).toString() + "%";
   };
 
   return (
@@ -234,34 +277,34 @@ export default function OrderBook() {
         <p className="text-text-head">Total</p>
       </div>
       <div className="pb-2">
-        {bidPrice &&
-          bidSize &&
-          bidPrice.map((bid: number, index: number) => {
+        {askPrice &&
+          askSize &&
+          askPrice.map((ask: number, index: number) => {
             return (
               <div
-                key={bid}
-                className={`px-2 flex justify-between hover:bg-background-hover
-                ${bidStatus[index] === "new" && "animate-flash-red"}`}
+                key={ask}
+                className={`px-2 py-[0.75px] flex justify-between hover:bg-background-hover
+                ${askStatus[index] === "new" && "animate-flash-red"}`}
               >
                 <div className="flex w-1/2">
                   <div className="w-1/2 text-text-sell">
-                    {formatNumber(bidPrice[index], 1)}
+                    {formatNumber(askPrice[index], 1)}
                   </div>
                   <div
                     className={`w-1/2 text-right
-                    ${bidStatus[index] === "sizeGain" && "animate-flash-green"}
-                    ${bidStatus[index] === "sizeLoss" && "animate-flash-red"}`}
+                    ${askStatus[index] === "sizeGain" && "animate-flash-green"}
+                    ${askStatus[index] === "sizeLoss" && "animate-flash-red"}`}
                   >
-                    {formatNumber(bidSize[index], 0)}
+                    {formatNumber(askSize[index], 0)}
                   </div>
                 </div>
                 <div className="w-[45%] relative">
                   <div className="z-10 absolute right-0">
-                    {formatNumber(bidTotals[index], 0)}
+                    {formatNumber(askTotals[index], 0)}
                   </div>
                   <div
                     style={{
-                      width: getSizePercent(bidTotals[index]),
+                      width: getSizePercent("ask", askTotals[index], askTotals),
                     }}
                     className="h-full bg-background-sell-total absolute right-0"
                   />
@@ -308,6 +351,43 @@ export default function OrderBook() {
             <polyline points="19 12 12 19 5 12"></polyline>
           </svg>
         )}
+      </div>
+      <div className="py-2">
+        {bidPrice &&
+          bidSize &&
+          bidPrice.map((bid: number, index: number) => {
+            return (
+              <div
+                key={bid}
+                className={`px-2 py-[0.75px] flex justify-between hover:bg-background-hover
+                ${bidStatus[index] === "new" && "animate-flash-green"}`}
+              >
+                <div className="flex w-1/2">
+                  <div className="w-1/2 text-text-buy">
+                    {formatNumber(bidPrice[index], 1)}
+                  </div>
+                  <div
+                    className={`w-1/2 text-right
+                    ${bidStatus[index] === "sizeGain" && "animate-flash-green"}
+                    ${bidStatus[index] === "sizeLoss" && "animate-flash-red"}`}
+                  >
+                    {formatNumber(bidSize[index], 0)}
+                  </div>
+                </div>
+                <div className="w-[45%] relative">
+                  <div className="z-10 absolute right-0">
+                    {formatNumber(bidTotals[index], 0)}
+                  </div>
+                  <div
+                    style={{
+                      width: getSizePercent("bid", bidTotals[index], bidTotals),
+                    }}
+                    className="h-full bg-background-buy-total absolute right-0"
+                  />
+                </div>
+              </div>
+            );
+          })}
       </div>
     </div>
   );
