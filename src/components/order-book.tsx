@@ -79,7 +79,6 @@ export default function OrderBook() {
     if (typeof e.data === "string") {
       // console.log("received: '" + e.data + "'");
       const raw = JSON.parse(e.data);
-      // const topic = raw && raw.topic ? raw.topic : "";
       const rawAsks = raw?.data?.asks;
       const rawBids = raw?.data?.bids;
 
